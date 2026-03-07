@@ -785,6 +785,20 @@
             color: var(--forest-green);
         }
 
+        .popup-total-card {
+            background: linear-gradient(145deg, var(--forest-green), #1f441a);
+            color: white;
+            padding: 14px 18px;
+            border-radius: 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 1.2rem;
+            font-weight: 900;
+            margin-bottom: 16px;
+            border: 2px solid var(--sandy-beige);
+        }
+
         .popup-timer {
             background: var(--sandy-beige);
             border-radius: 28px;
@@ -1026,9 +1040,10 @@
     </audio>
 
     <script>
-        // ======================== إعدادات المطبخ (مأخوذة من kitchen.html مع دمج تحسينات cash.html) ========================
+        // ======================== إعدادات المطبخ المحسنة ========================
         const CONFIG = {
             API_URL: 'https://script.google.com/macros/s/AKfycbzU7pp0Ul8KNDT4iEd7kGFxNrXYzX4B4zfdYANjE59ABvMq1vIKlmEM4gAOipY47Zeoiw/exec',
+            MENU_API_URL: 'https://script.google.com/macros/s/AKfycbyf1LnxXlGpllpyNeO9Gez1ah-DUSaVfTk3KhPDV8lDtN_Zga1GMZDaM387o0XWhIIW/exec', // رابط القائمة الجديد
             RESTAURANT: { name: 'تل السنديان', code: 'TSN' },
             REFRESH_INTERVAL: 5000,
             MAX_REFRESH_INTERVAL: 60000,
@@ -1037,19 +1052,21 @@
             FETCH_TIMEOUT: 8000,
             MAX_RETRIES: 3,
             CACHE_KEY: 'kitchen_orders_backup',
+            KITCHEN_CATEGORY_NAMES: [
+                'الطبليات',
+                'إضافات',
+                'صاجيات',
+                'فخارات',
+                'صواني',
+                'مقبلات باردة',
+                'مقبلات ساخن'
+            ]
         };
 
-        // قائمة أصناف المطبخ الشاملة (من kitchen.html)
-        const KITCHEN_KEYWORDS = [
-            'طبلية', 'طبليات',
-            'قلايه', 'قلاية', 'حمص', 'لبنة', 'بجوز', 'بندوره', 'بلحمه', 'اورما', 'بيض', 'فتت', 'متبل',
-            'صاجيه', 'صاجية', 'كريما', 'بكريما', 'فخارة', 'فخاره', 'فريكة',
-            'صينية', 'صينيه', 'كفتة', 'كفته', 'بطحينية',
-            'سيزر', 'فتوش', 'تبوله', 'سلطة', 'سلطه', 'فلاحية', 'عربية', 'يونانية', 'بقدونسية', 'طحينية',
-            'سلة', 'بطاطا', 'حاره', 'كبة', 'سمبوسك', 'حلوم', 'مقلية'
-        ];
+        // ======================== قائمة الكلمات المفتاحية الديناميكية (سيتم ملؤها من القائمة) ========================
+        let KITCHEN_KEYWORDS = []; // سيتم تعبئتها من API القائمة
 
-        // ======================== IndexedDB Wrapper (من cash.html) ========================
+        // ======================== IndexedDB Wrapper ========================
         const DB = {
             name: 'TelAlSindianKitchenDB',
             version: 1,
@@ -1184,6 +1201,57 @@
             }, 0);
         }
 
+        // جلب قائمة المنتجات من API القائمة وتحديث KITCHEN_KEYWORDS
+        async function loadMenuAndUpdateKeywords() {
+            try {
+                const response = await fetch(`${CONFIG.MENU_API_URL}?action=getMenuData&_=${Date.now()}`);
+                const data = await response.json();
+                if (data.success && data.categories && data.products) {
+                    // الحصول على معرفات الأقسام المطلوبة
+                    const categoryIds = data.categories
+                        .filter(cat => CONFIG.KITCHEN_CATEGORY_NAMES.includes(cat.name.trim()))
+                        .map(cat => cat.id);
+                    
+                    if (categoryIds.length > 0) {
+                        // الحصول على جميع المنتجات في هذه الأقسام
+                        const categoryProducts = data.products.filter(p => categoryIds.includes(p.categoryId));
+                        // استخراج أسماء المنتجات (مع تنظيف بسيط)
+                        const productNames = categoryProducts.map(p => p.name.trim());
+                        // إزالة التكرار وتحديث القائمة
+                        KITCHEN_KEYWORDS = [...new Set(productNames)];
+                        console.log(`تم تحميل ${KITCHEN_KEYWORDS.length} كلمة مفتاحية من أقسام المطبخ`);
+                    } else {
+                        console.warn('لم يتم العثور على أقسام المطبخ المحددة، سيتم استخدام القائمة الافتراضية');
+                    }
+                } else {
+                    throw new Error('Invalid menu data format');
+                }
+            } catch (error) {
+                console.error('فشل تحميل قائمة المطبخ:', error);
+                // نترك القائمة الافتراضية كما هي
+            }
+        }
+
+        // دالة تصفية أصناف المطبخ (تعتمد على KITCHEN_KEYWORDS المحدثة)
+        function isKitchenItem(itemName) {
+            if (!itemName) return false;
+            const name = itemName.toString().toLowerCase().trim();
+            // إذا كانت القائمة الديناميكية تحتوي على أسماء، نستخدمها
+            if (KITCHEN_KEYWORDS.length > 0) {
+                return KITCHEN_KEYWORDS.some(keyword => name.includes(keyword.toLowerCase()));
+            }
+            // وإلا نستخدم القائمة الافتراضية كاحتياطي
+            const defaultKeywords = [
+                'طبلية', 'طبليات',
+                'قلايه', 'قلاية', 'حمص', 'لبنة', 'بجوز', 'بندوره', 'بلحمه', 'اورما', 'بيض', 'فتت', 'متبل',
+                'صاجيه', 'صاجية', 'كريما', 'بكريما', 'فخارة', 'فخاره', 'فريكة',
+                'صينية', 'صينيه', 'كفتة', 'كفته', 'بطحينية',
+                'سيزر', 'فتوش', 'تبوله', 'سلطة', 'سلطه', 'فلاحية', 'عربية', 'يونانية', 'بقدونسية', 'طحينية',
+                'سلة', 'بطاطا', 'حاره', 'كبة', 'سمبوسك', 'حلوم', 'مقلية'
+            ];
+            return defaultKeywords.some(keyword => name.includes(keyword));
+        }
+
         // تطبيع البيانات
         function normalizeOrder(order) {
             let rawItems = order.items || order.Items || order.orderItems || [];
@@ -1205,13 +1273,6 @@
                 preparedAt: order.preparedAt || '',
                 completedAt: order.completedAt || ''
             };
-        }
-
-        // توزيع ذكي لأصناف المطبخ
-        function isKitchenItem(itemName) {
-            if (!itemName) return false;
-            const name = itemName.toString().toLowerCase().trim();
-            return KITCHEN_KEYWORDS.some(k => name.includes(k.toLowerCase()));
         }
 
         function filterOrders(orders) {
@@ -1823,6 +1884,9 @@
                 console.error('فشل تهيئة IndexedDB، استخدام localStorage كاحتياطي', error);
                 loadFromLocalStorage();
             }
+
+            // تحميل قائمة المطبخ من API القائمة
+            await loadMenuAndUpdateKeywords();
             
             startAutoRefresh();
             startCleanupTask();
